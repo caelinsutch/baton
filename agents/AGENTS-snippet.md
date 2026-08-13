@@ -10,8 +10,9 @@ instead, because guessing is free and asking looks expensive.
 ## Calling the tools
 
 Some harnesses expose these as top-level tools. Others route MCP through a
-gateway: in pi, call `mcp` with `server: "baton"` and `tool: "ask_human"`. Check
-your tool list before assuming a bare `ask_human` exists.
+gateway: in pi, call `mcp` with `server: "baton"` and `tool: "ask_human"`. Claude
+Code exposes them directly but prefixed, as `mcp__baton__ask_human`. Check your
+tool list before assuming a bare `ask_human` exists.
 
 ## Asking the human
 

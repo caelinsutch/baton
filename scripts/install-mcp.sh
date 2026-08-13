@@ -42,8 +42,8 @@ Baton MCP server
 
 Binary: $MCP
 
-pi  (~/.pi/agent/settings.json, or a project .pi/settings.json)
----------------------------------------------------------------
+pi  (~/.pi/agent/mcp.json — not settings.json)
+----------------------------------------------
 {
   "mcpServers": {
     "baton": {
@@ -57,16 +57,24 @@ pi  (~/.pi/agent/settings.json, or a project .pi/settings.json)
   }
 }
 
-Claude Code  (~/.claude.json or .mcp.json)
-------------------------------------------
+Claude Code  (~/.claude.json for user scope, or a project .mcp.json)
+-------------------------------------------------------------------
+Easiest is the CLI, which writes the user-scope entry for you:
+
+  claude mcp add --scope user baton $MCP serve
+
+Or by hand, merged into the existing top-level object:
 {
   "mcpServers": {
     "baton": {
+      "type": "stdio",
       "command": "$MCP",
       "args": ["serve"]
     }
   }
 }
+
+Claude Code reads this once at session start. Restart any open session.
 
 Codex / generic stdio client
 ---------------------------
@@ -80,6 +88,8 @@ BATON_SESSION_ID   Session id, when your harness does not pass one.
 BATON_DB           Alternate database path. Useful for a test run.
 BATON_NO_LAUNCH=1  Stop the CLI from launching the app.
 
-Then add agents/AGENTS-snippet.md to your project AGENTS.md. Without that
-instruction the agent will not use the tool.
+Then add agents/AGENTS-snippet.md to your project AGENTS.md or CLAUDE.md.
+Without that instruction the agent will not use the tool.
+
+scripts/install.sh does all of the above for pi and Claude Code automatically.
 EOF

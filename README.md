@@ -53,12 +53,16 @@ That does the four things needed to make it stick:
 - Installs `Baton.app` to `/Applications`, not a build directory that a clean
   build would wipe.
 - Adds a login item, so the notch is there tomorrow.
-- Registers the MCP server in `~/.pi/agent/mcp.json`, which is the file pi reads.
-  It is not `settings.json`.
-- Adds a short section to `~/.pi/agent/AGENTS.md` telling agents the tool exists
-  and, importantly, that a question in their output is the wrong channel when
-  nobody is watching that terminal. Without that last part an agent asks in text
-  and stalls.
+- Registers the MCP server with both harnesses: `~/.pi/agent/mcp.json`, which is
+  the file pi reads and is not `settings.json`, and `~/.claude.json` at user
+  scope, so every Claude Code project and Conductor worktree sees it.
+- Adds a short section to `~/.pi/agent/AGENTS.md` and `~/.claude/CLAUDE.md`
+  telling agents the tool exists and, importantly, that a question in their
+  output is the wrong channel when nobody is watching that terminal. Without
+  that last part an agent asks in text and stalls.
+
+Claude Code reads its MCP servers once at session start, so restart any session
+that is already open.
 
 Then check notifications once:
 
@@ -232,7 +236,8 @@ scripts/
   smoke-mcp.sh   End-to-end protocol and round-trip check
   check-notifications.sh  Diagnose notification delivery and post a test banner
   record-demo.sh  Re-record the demo above, end to end with a real agent
-  install.sh      Install to /Applications, add a login item, wire up pi
+  install.sh      Install to /Applications, add a login item, wire up pi and
+                  Claude Code
 agents/
   AGENTS-snippet.md  The prompt that makes agents use it
 ```
