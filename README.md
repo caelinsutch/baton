@@ -45,26 +45,32 @@ Requires macOS 26 and Xcode 26.
 ```bash
 git clone https://github.com/caelinsutch/baton.git
 cd baton
-scripts/build-app.sh
-open dist/Baton.app
+scripts/install.sh
 ```
 
-Then point an agent at the MCP server:
+That does the four things needed to make it stick:
+
+- Installs `Baton.app` to `/Applications`, not a build directory that a clean
+  build would wipe.
+- Adds a login item, so the notch is there tomorrow.
+- Registers the MCP server in `~/.pi/agent/mcp.json`, which is the file pi reads.
+  It is not `settings.json`.
+- Adds a short section to `~/.pi/agent/AGENTS.md` telling agents the tool exists
+  and, importantly, that a question in their output is the wrong channel when
+  nobody is watching that terminal. Without that last part an agent asks in text
+  and stalls.
+
+Then check notifications once:
 
 ```bash
-scripts/install-mcp.sh          # prints config for pi, Claude Code, and others
-scripts/install-mcp.sh --check  # verifies the store and the protocol
+scripts/check-notifications.sh
 ```
 
-For pi, the file is `~/.pi/agent/mcp.json`, not `settings.json`, and pi reaches
-MCP tools through its `mcp` gateway rather than as top-level tools:
+Undo everything with `scripts/install.sh --uninstall`. Your task database and
+settings are left alone.
 
-```json
-{ "mcpServers": { "baton": { "command": "/path/to/Baton.app/Contents/MacOS/baton-mcp", "args": ["serve"] } } }
-```
-
-Finally, copy `agents/AGENTS-snippet.md` into your project `AGENTS.md`. **Do not
-skip this.** Without an instruction to use the tool, an agent will not use it.
+For other harnesses, `scripts/install-mcp.sh` prints the configuration to paste,
+and `agents/AGENTS-snippet.md` is the longer prompt for a project `AGENTS.md`.
 
 ## The tools
 
@@ -226,6 +232,7 @@ scripts/
   smoke-mcp.sh   End-to-end protocol and round-trip check
   check-notifications.sh  Diagnose notification delivery and post a test banner
   record-demo.sh  Re-record the demo above, end to end with a real agent
+  install.sh      Install to /Applications, add a login item, wire up pi
 agents/
   AGENTS-snippet.md  The prompt that makes agents use it
 ```

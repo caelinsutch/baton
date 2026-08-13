@@ -43,10 +43,15 @@ struct ToolHandlers {
         normalized["title"] = .string(question)
         if let details = arguments["details"] { normalized["body"] = details }
 
-        let result = try create(.object(normalized))
+        let created = try create(.object(normalized))
         let wait = clampWait(arguments["waitSeconds"]?.doubleValue)
-        let settled = waitForResolution(id: result.task.id, timeout: wait)
-        return report(settled ?? result.task, deduplicated: result.wasDeduplicated, waited: wait)
+        let settled = waitForResolution(id: created.result.task.id, timeout: wait)
+        return report(
+            settled ?? created.result.task,
+            deduplicated: created.result.wasDeduplicated,
+            waited: wait,
+            warning: created.note
+        )
     }
 
     // MARK: - submit_task
@@ -55,8 +60,13 @@ struct ToolHandlers {
         guard let title = arguments["title"]?.stringValue, !title.isEmpty else {
             throw Failure.missingArgument("title")
         }
-        let result = try create(arguments)
-        return report(result.task, deduplicated: result.wasDeduplicated, waited: nil)
+        let created = try create(arguments)
+        return report(
+            created.result.task,
+            deduplicated: created.result.wasDeduplicated,
+            waited: nil,
+            warning: created.note
+        )
     }
 
     // MARK: - await_task
@@ -123,13 +133,13 @@ struct ToolHandlers {
 
     // MARK: - Creation
 
-    private func create(_ arguments: JSONValue) throws -> TaskStore.SubmitResult {
+    private func create(_ arguments: JSONValue) throws -> (result: TaskStore.SubmitResult, note: String?) {
         let sessionId = arguments["sessionId"]?.stringValue ?? HarnessEnvironment.detect().sessionId
         try Guardrails.checkRate(store: store, sessionId: sessionId)
 
-        let worktree = arguments["worktree"]?.stringValue
-        let repo = worktree.flatMap { GitProbe.describe(path: $0) }
-            ?? worktree.map { BatonTask.RepoRef(worktreePath: ($0 as NSString).expandingTildeInPath) }
+        let requested = arguments["worktree"]?.stringValue
+        let resolved = resolveWorktree(requested)
+        let repo = resolved.repo
 
         let baseRef = arguments["baseRef"]?.stringValue
         let summary = (repo?.worktreePath).flatMap { path in
@@ -165,7 +175,44 @@ struct ToolHandlers {
             WakeSignal.post()
             AppLauncher.nudge()
         }
-        return result
+        return (result, resolved.note)
+    }
+
+    /// Turns a `worktree` argument into a real repository reference.
+    ///
+    /// Agents pass things that are not paths. One copied its harness status line
+    /// and sent "notes-app (refactor/session-handling)". Storing that verbatim put
+    /// nonsense on the card, and worse, a wake hook that requires a worktree would
+    /// skip the task, so nobody would ever be told the answer.
+    ///
+    /// So: accept it only if it is a real directory. Otherwise fall back to this
+    /// process's working directory, which the harness sets to the project it
+    /// launched the MCP server from, and which is almost always what the agent
+    /// meant. If neither is a git worktree, store nothing rather than a guess.
+    private func resolveWorktree(_ requested: String?) -> (repo: BatonTask.RepoRef?, note: String?) {
+        if let requested, !requested.isEmpty {
+            let expanded = (requested as NSString).expandingTildeInPath
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory)
+            if exists, isDirectory.boolValue {
+                if let described = GitProbe.describe(path: expanded) {
+                    return (described, nil)
+                }
+                // A real directory that is not a repository is still useful context.
+                return (BatonTask.RepoRef(worktreePath: expanded), nil)
+            }
+        }
+
+        let current = FileManager.default.currentDirectoryPath
+        let fallback = GitProbe.describe(path: current)
+        guard let requested, !requested.isEmpty else {
+            return (fallback, nil)
+        }
+        return (
+            fallback,
+            "'\(requested)' is not a directory, so Baton used \(fallback?.worktreePath ?? current) "
+                + "instead. Pass an absolute path next time."
+        )
     }
 
     /// Provenance for a task. Anything the agent passed wins; the rest comes from
@@ -210,13 +257,21 @@ struct ToolHandlers {
 
     /// The agent-facing view of a task. Keep it small and add a `nextStep` line,
     /// because that line decides what the agent does next.
-    private func report(_ task: BatonTask, deduplicated: Bool, waited: TimeInterval?) -> JSONValue {
+    private func report(
+        _ task: BatonTask,
+        deduplicated: Bool,
+        waited: TimeInterval?,
+        warning: String? = nil
+    ) -> JSONValue {
         var payload: [String: JSONValue?] = [
             "id": .string(task.id),
             "status": .string(task.status.rawValue),
             "title": .string(task.title),
             "createdAt": .string(ISO8601DateFormatter().string(from: task.createdAt)),
         ]
+        if let warning {
+            payload["warning"] = .string(warning)
+        }
         if deduplicated {
             payload["deduplicated"] = .bool(true)
             payload["note"] = .string("An open task with this dedupeKey already exists. Baton did not create a second one.")

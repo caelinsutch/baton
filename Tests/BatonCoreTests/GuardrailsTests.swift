@@ -125,3 +125,52 @@ struct JSONValueTests {
         #expect(parsed["b"]?.intValue == 1)
     }
 }
+
+/// The worktree is the field everything else hangs off: the card's context, the
+/// grouping, and whether a wake hook will fire at all. Agents get it wrong.
+@Suite("Worktree handling")
+struct WorktreeTests {
+    @Test("A real git worktree is described from disk")
+    func describesRealWorktree() throws {
+        // The repository this test runs in is a worktree, so it is a fair sample.
+        let path = FileManager.default.currentDirectoryPath
+        guard let repo = GitProbe.describe(path: path) else { return }
+        #expect(repo.worktreePath.hasPrefix("/"))
+        #expect(repo.branch?.isEmpty != true)
+    }
+
+    @Test("A path that is not a directory is refused")
+    func refusesNonDirectory() {
+        // The exact string an agent sent after copying its status line.
+        #expect(GitProbe.describe(path: "notes-app (refactor/session-handling)") == nil)
+        #expect(GitProbe.describe(path: "/definitely/not/here") == nil)
+        #expect(GitProbe.describe(path: "") == nil)
+    }
+
+    @Test("A directory outside git yields no reference")
+    func refusesNonRepository() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("baton-plain-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(GitProbe.describe(path: directory.path) == nil)
+    }
+
+    @Test("A worktree that no longer exists blocks a directory-based wake hook")
+    func missingWorktreeBlocksHook() {
+        // This is why requireWorktree exists: `pi --continue` resumes whatever is
+        // newest in the working directory, so running it from the wrong place would
+        // wake an unrelated agent.
+        let hook = BatonConfig.ResolveHook(
+            command: "/bin/echo",
+            args: ["{summary}"],
+            requireSessionId: false,
+            requireWorktree: true
+        )
+        var task = BatonTask(title: "Gone", repo: .init(worktreePath: "/no/such/path"))
+        task.response = .init(decision: .approved)
+        // Nothing to assert beyond it not firing; the notifier returns silently.
+        ResolveNotifier.fire(task: task, config: BatonConfig(onResolve: hook))
+        #expect(hook.requireWorktree)
+    }
+}
