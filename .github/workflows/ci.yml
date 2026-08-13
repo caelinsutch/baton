@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Read-only by default. Each job asks for more only when it needs more.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Baton targets macOS 26, so it needs a Tahoe runner with Xcode 26.
+    # Change this to a self-hosted label if the hosted image lags behind.
+    runs-on: macos-26
+    timeout-minutes: 25
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Keep the token out of .git/config, so it cannot reach an artifact.
+          persist-credentials: false
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          swift --version
+          xcodebuild -version
+
+      - name: Cache SwiftPM
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build
+        run: swift build --build-tests
+
+      - name: Test
+        run: swift test
+
+      - name: Assemble the app bundle
+        run: scripts/build-app.sh release
+
+      - name: Check the MCP protocol
+        run: scripts/smoke-mcp.sh dist/Baton.app/Contents/MacOS/baton-mcp
+
+      - name: Upload the app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Baton-app-unsigned
+          path: dist/Baton.app
+          retention-days: 7
+
+  lint:
+    runs-on: macos-26
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: SwiftLint
+        run: |
+          brew install swiftlint
+          swiftlint lint --strict --reporter github-actions-logging
+
+      - name: Shell scripts
+        run: |
+          brew install shellcheck
+          shellcheck scripts/*.sh

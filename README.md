@@ -1,0 +1,235 @@
+# Baton
+
+A macOS notch that agents can hand work to.
+
+Your coding agents run in ten worktrees. One of them needs you: review this diff,
+open this preview, pick A or B, approve this migration. Today it blocks in a
+terminal tab you are not looking at.
+
+Baton gives agents an MCP tool to ask, and gives you one place to answer.
+
+```text
+Agent ──▶ baton-mcp (MCP over stdio) ──▶ tasks.db ◀── Baton.app ──▶ you
+                                            ▲                         │
+                                            └──── your answer ────────┘
+```
+
+## What it looks like
+
+The shell hangs from the top of your screen. It is a pill at rest, a card when
+you look at it, and a slim bar while you work.
+
+| State | What it shows |
+| --- | --- |
+| Idle | A pill hugging the notch. A count and a priority dot. |
+| Peek | A task arrives, expands for a few seconds, collapses. |
+| Card | The full task: context, links, checklist, choices, actions. |
+| Working | A slim bar you can work under, in another app, with the next check and a Done button. |
+| Queue | Every open task, grouped by worktree. |
+
+The card is built on Liquid Glass: `GlassEffectContainer`, `glassEffect`, and
+`glassEffectID`, so the shell morphs between states instead of cutting.
+
+## Install
+
+Requires macOS 26 and Xcode 26.
+
+```bash
+git clone https://github.com/caelinsutch/baton.git
+cd baton
+scripts/build-app.sh
+open dist/Baton.app
+```
+
+Then point an agent at the MCP server:
+
+```bash
+scripts/install-mcp.sh          # prints config for pi, Claude Code, and others
+scripts/install-mcp.sh --check  # verifies the store and the protocol
+```
+
+Finally, copy `agents/AGENTS-snippet.md` into your project `AGENTS.md`. **Do not
+skip this.** Without an instruction to use the tool, an agent will not use it.
+
+## The tools
+
+| Tool | Blocks | Use |
+| --- | --- | --- |
+| `ask_human` | Yes | Submit and wait in one call. The common case. |
+| `submit_task` | No | Queue a task and end your turn. |
+| `await_task` | Yes | Wait on an id you already have. |
+| `get_task` | No | Check for an answer. |
+| `list_tasks` | No | Find your tasks after a restart. |
+| `cancel_task` | No | Withdraw a question you answered yourself. |
+
+A blocking call defaults to 120 seconds and caps at 900. A timeout returns
+`status: "pending"`, not an error. The task stays open.
+
+## Keys
+
+Inside the card:
+
+| Key | Action |
+| --- | --- |
+| `⌘↩` | Confirm: approve, send the choice, or send the answer |
+| `⌘⇧↩` | Send back, with a note |
+| `⌘1`–`⌘8` | Pick a choice |
+| `esc` | Close the card |
+
+These need the card to hold the keyboard, which happens once you open the
+send-back note. The rest of the time the notch deliberately does not take focus,
+so reach for the global keys instead.
+
+Global, from any app:
+
+| Key | Action |
+| --- | --- |
+| `⌥⌘B` | Show the queue |
+| `⌥⌘↩` | Mark the current task done |
+| `⌥⌘⌫` | Send the current task back |
+
+The global keys carry `⌥⌘` on purpose. A global `⌘↩` would break confirm in every
+other app.
+
+## Send back, not just done
+
+"Done" is easy. "Send back" carries the information.
+
+A send-back returns the note, plus the checklist state. An unticked required item
+comes back as `failedChecks`, so the agent gets told which check failed by name
+rather than "it looks wrong". That is what makes the round trip converge.
+
+## How the agent finds out
+
+Two cases, and they work differently.
+
+**The agent is waiting.** It called `ask_human` or `await_task`, so it is blocked
+inside that tool call, polling its own row every 200 to 300 ms. Your answer
+reaches it in well under a second. Nothing to configure.
+
+**The agent already ended its turn.** It called `submit_task` and stopped. It is
+not running, so nothing can tell it. Your answer sits in the database until that
+agent runs again and calls `get_task` or `list_tasks`.
+
+For the second case, add a wake hook. Baton runs it when you resolve a task.
+
+`~/Library/Application Support/dev.baton/config.json`
+
+```json
+{
+  "onResolve": {
+    "command": "/opt/homebrew/bin/pi",
+    "args": [
+      "--resume", "{sessionId}",
+      "--message", "Baton {decision}: {text} Failed checks: {failedChecks}"
+    ],
+    "decisions": ["approved", "sentBack", "answered", "chose"],
+    "requireSessionId": true
+  }
+}
+```
+
+Placeholders: `{id}` `{sessionId}` `{agent}` `{decision}` `{status}` `{title}`
+`{text}` `{worktree}` `{branch}` `{failedChecks}`. The command runs in the task's
+worktree.
+
+You own this file. The MCP tools cannot write it, `command` must be an absolute
+path to an executable, and Baton runs it directly with no shell. A task payload
+supplies data, never the program. Check the wiring with `baton-mcp doctor`.
+
+For a shell-driven flow, block on a task with no MCP client at all:
+
+```bash
+ID=$(baton-mcp submit "Review before commit" --worktree "$PWD" --base main)
+baton-mcp watch "$ID" && git commit   # exit 0 approved, 3 sent back, 4 expired
+```
+
+## How it works
+
+The **SQLite database is the source of truth**, not the app. Every `baton-mcp`
+process and the app open the same file in WAL mode. This means:
+
+- An agent can submit a task while the app is closed.
+- A blocking wait is a poll on one row, so a dropped signal cannot lose an
+  answer.
+- The app can crash without losing the queue.
+
+The app is a viewer and a notifier. It is not a broker.
+
+## Layout
+
+```text
+Sources/
+  BatonCore/     Model, SQLite store, guardrails, git probe, JSON
+  BatonMCP/      MCP server over stdio, plus shell subcommands
+  BatonApp/      SwiftUI app: notch panel, glass views, notifications, hotkeys
+scripts/
+  build-app.sh   Assemble Baton.app
+  install-mcp.sh Print or check the agent config
+  make-icon.swift Render the icon, generated not committed
+  release.sh     Sign, notarize, package a DMG
+  smoke-mcp.sh   End-to-end protocol and round-trip check
+agents/
+  AGENTS-snippet.md  The prompt that makes agents use it
+```
+
+Zero external dependencies. SQLite is the system library, the MCP protocol is
+hand-rolled JSON-RPC, and the global hotkeys use Carbon.
+
+## Development
+
+```bash
+swift build            # build
+swift test             # unit tests
+scripts/smoke-mcp.sh   # end-to-end MCP check
+swiftlint              # lint
+
+# Drive the app without an agent:
+baton-mcp submit "Check the modal" --worktree ~/code/app --check "Closes on Escape"
+baton-mcp list
+baton-mcp respond <id> back "Focus lands on the wrong button."
+```
+
+Set `BATON_DEBUG=1` and run the binary directly to trace the notch. In debug a
+new task opens the full card at once, instead of peeking and collapsing, because
+hover is awkward to drive from a script:
+
+```bash
+BATON_DEBUG=1 ./dist/Baton.app/Contents/MacOS/BatonApp
+```
+
+The trace prints each phase change, the measured shell frame, and whether the
+panel holds the keyboard. The shell frame is also the hit area: everything
+outside it passes clicks through to the app underneath.
+
+## Notifications
+
+Notifications need a real bundle with a stable bundle id. An ad-hoc signature is
+enough to launch the app, but delivery is only reliable with a Developer ID
+signature. Set `BATON_SIGN_IDENTITY` before you rely on banners.
+
+Time Sensitive alerts, used by `urgent`, need a restricted entitlement that Apple
+must grant. `scripts/build-app.sh` deliberately omits the entitlements file for
+an ad-hoc build, because launchd refuses to spawn an ad-hoc binary that claims a
+restricted entitlement.
+
+## Guardrails
+
+An MCP tool that can interrupt you needs limits.
+
+- 20 tasks per session per minute, then a clear error telling the agent to batch.
+- Links open only on a click, and only for `http`, `https`, `file`, and known
+  editor schemes. No `javascript:`, no `data:`.
+- Titles, bodies, choices, and checklists are all bounded.
+- Markdown renders inline only. Remote images do not load.
+- A task whose agent process died is labelled "agent gone", so you do not spend
+  attention on work nobody is waiting for.
+
+## Status
+
+Early. The core loop works end to end: an agent asks, you see it, you answer, the
+agent continues. See `DESIGN.md` for the reasoning and the roadmap.
+
+## Licence
+
+MIT

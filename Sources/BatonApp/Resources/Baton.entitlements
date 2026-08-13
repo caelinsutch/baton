@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Not sandboxed. Baton runs `git` in your worktrees and opens your editor. -->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<!--
+	  Time Sensitive notifications need this entitlement, and Apple has to grant
+	  it for a distributed build. Urgent tasks fall back to a normal banner
+	  without it.
+	-->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
+</dict>
+</plist>
