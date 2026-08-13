@@ -156,3 +156,88 @@ struct ResolveNotifierTests {
         #expect(waitForOutput(recorder.output, timeout: 0.5) == nil)
     }
 }
+
+/// `{summary}` is the placeholder the documented configs use, so its wording is
+/// part of the contract with every agent that gets woken.
+@Suite("ResolveNotifier summary")
+struct ResolveSummaryTests {
+    private func makeRecorder() throws -> (script: String, output: URL, cleanup: () -> Void) {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("baton-summary-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let output = directory.appendingPathComponent("out.txt")
+        let script = directory.appendingPathComponent("record.sh")
+        try Data("#!/bin/bash\nprintf '%s' \"$1\" > \"\(output.path)\"\n".utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        return (script.path, output, { try? FileManager.default.removeItem(at: directory) })
+    }
+
+    private func summary(for response: BatonTask.Response, task inputTask: BatonTask? = nil) throws -> String {
+        let recorder = try makeRecorder()
+        defer { recorder.cleanup() }
+        var task = inputTask ?? BatonTask(
+            title: "Check the modal",
+            agent: .init(name: "pi", sessionId: "sess-1")
+        )
+        task.response = response
+        let config = BatonConfig(onResolve: .init(command: recorder.script, args: ["{summary}"]))
+        ResolveNotifier.fire(task: task, config: config)
+
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if let text = try? String(contentsOf: recorder.output, encoding: .utf8), !text.isEmpty {
+                return text
+            }
+            usleep(50_000)
+        }
+        return ""
+    }
+
+    @Test("An approval with no note reads as a clean sentence")
+    func approvalWithoutNote() throws {
+        let text = try summary(for: .init(decision: .approved))
+        #expect(text == "The human approved \"Check the modal\".")
+        // The old template left these dangling.
+        #expect(!text.contains("Failed checks"))
+        #expect(!text.hasSuffix(": "))
+    }
+
+    @Test("A send-back names the failed checks and says what to do")
+    func sendBackWithChecks() throws {
+        let items = [
+            BatonTask.ChecklistItem(text: "Closes on Escape", checked: true),
+            BatonTask.ChecklistItem(text: "Focus returns", checked: false),
+        ]
+        let text = try summary(for: .init(
+            decision: .sentBack,
+            text: "Focus stays on the body.",
+            checklist: items
+        ))
+        #expect(text.contains("sent back"))
+        #expect(text.contains("Focus stays on the body."))
+        #expect(text.contains("Failed checks: Focus returns."))
+        #expect(text.contains("submit a new Baton task"))
+        // The passing check must not be reported as a failure.
+        #expect(!text.contains("Closes on Escape"))
+    }
+
+    @Test("A choice reports the label, not the identifier")
+    func choiceUsesLabel() throws {
+        let choices = [
+            BatonTask.Choice(id: "c1", label: "Redis"),
+            BatonTask.Choice(id: "c2", label: "In-memory LRU"),
+        ]
+        var task = BatonTask(title: "Which cache?", agent: .init(sessionId: "s"), choices: choices)
+        task.response = .init(decision: .chose, choiceId: "c2")
+        let text = try summary(for: task.response!, task: task)
+        #expect(text.contains("\"In-memory LRU\""))
+        #expect(!text.contains("c2"))
+    }
+
+    @Test("An expiry tells the agent it may proceed")
+    func expiry() throws {
+        let text = try summary(for: .init(decision: .expired))
+        #expect(text.contains("Nobody answered"))
+        #expect(text.contains("own judgement"))
+    }
+}

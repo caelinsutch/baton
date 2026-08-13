@@ -7,6 +7,12 @@ instead, because guessing is free and asking looks expensive.
 
 ---
 
+## Calling the tools
+
+Some harnesses expose these as top-level tools. Others route MCP through a
+gateway: in pi, call `mcp` with `server: "baton"` and `tool: "ask_human"`. Check
+your tool list before assuming a bare `ask_human` exists.
+
 ## Asking the human
 
 You can reach the human who runs you through the `baton` MCP tools. Use them.
@@ -63,7 +69,9 @@ You can reach the human who runs you through the `baton` MCP tools. Use them.
 8. **Keep `priority` at `normal`.** Use `urgent` only when the answer blocks
    everything; it breaks through Do Not Disturb, and spending that costs trust.
 9. **Pass a stable `sessionId`** on every call, so you can find your own answers
-   after a restart.
+   after a restart. It also lets the human's setup wake you after your turn ends;
+   most harnesses do not pass your session to an MCP server, so if you do not send
+   it, nobody has it.
 
 ## Handling the reply
 

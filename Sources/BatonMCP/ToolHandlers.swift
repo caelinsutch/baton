@@ -124,7 +124,7 @@ struct ToolHandlers {
     // MARK: - Creation
 
     private func create(_ arguments: JSONValue) throws -> TaskStore.SubmitResult {
-        let sessionId = arguments["sessionId"]?.stringValue
+        let sessionId = arguments["sessionId"]?.stringValue ?? HarnessEnvironment.detect().sessionId
         try Guardrails.checkRate(store: store, sessionId: sessionId)
 
         let worktree = arguments["worktree"]?.stringValue
@@ -149,13 +149,7 @@ struct ToolHandlers {
             priority: BatonTask.Priority(rawValue: arguments["priority"]?.stringValue ?? "") ?? .normal,
             title: arguments["title"]?.stringValue ?? "Untitled task",
             body: arguments["body"]?.stringValue,
-            agent: BatonTask.AgentRef(
-                name: arguments["agentName"]?.stringValue ?? ProcessInfo.processInfo.environment["BATON_AGENT_NAME"] ?? "agent",
-                harness: ProcessInfo.processInfo.environment["BATON_HARNESS"],
-                model: ProcessInfo.processInfo.environment["BATON_MODEL"],
-                sessionId: sessionId ?? ProcessInfo.processInfo.environment["BATON_SESSION_ID"],
-                pid: getppid()
-            ),
+            agent: agentRef(explicitName: arguments["agentName"]?.stringValue, explicitSession: sessionId),
             repo: repo,
             links: ArgumentParsing.links(arguments["links"]),
             choices: choices,
@@ -172,6 +166,17 @@ struct ToolHandlers {
             AppLauncher.nudge()
         }
         return result
+    }
+
+    /// Provenance for a task. Anything the agent passed wins; the rest comes from
+    /// the harness environment, so a forgotten `sessionId` does not break the
+    /// wake hook.
+    private func agentRef(explicitName: String?, explicitSession: String?) -> BatonTask.AgentRef {
+        let detected = HarnessEnvironment.detect()
+        var ref = detected.agentRef(pid: getppid())
+        if let explicitName, !explicitName.isEmpty { ref.name = explicitName }
+        if let explicitSession, !explicitSession.isEmpty { ref.sessionId = explicitSession }
+        return ref
     }
 
     // MARK: - Waiting

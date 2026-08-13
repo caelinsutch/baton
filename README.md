@@ -48,6 +48,13 @@ scripts/install-mcp.sh          # prints config for pi, Claude Code, and others
 scripts/install-mcp.sh --check  # verifies the store and the protocol
 ```
 
+For pi, the file is `~/.pi/agent/mcp.json`, not `settings.json`, and pi reaches
+MCP tools through its `mcp` gateway rather than as top-level tools:
+
+```json
+{ "mcpServers": { "baton": { "command": "/path/to/Baton.app/Contents/MacOS/baton-mcp", "args": ["serve"] } } }
+```
+
 Finally, copy `agents/AGENTS-snippet.md` into your project `AGENTS.md`. **Do not
 skip this.** Without an instruction to use the tool, an agent will not use it.
 
@@ -101,17 +108,21 @@ rather than "it looks wrong". That is what makes the round trip converge.
 
 ## How the agent finds out
 
-Two cases, and they work differently.
+Two paths. Both are verified end to end against a real pi agent.
 
-**The agent is waiting.** It called `ask_human` or `await_task`, so it is blocked
-inside that tool call, polling its own row every 200 to 300 ms. Your answer
-reaches it in well under a second. Nothing to configure.
+### The agent is waiting
 
-**The agent already ended its turn.** It called `submit_task` and stopped. It is
-not running, so nothing can tell it. Your answer sits in the database until that
-agent runs again and calls `get_task` or `list_tasks`.
+It called `ask_human` or `await_task`, so it is blocked inside that tool call,
+polling its own row every 200 to 300 ms. Your answer reaches it in well under a
+second. Nothing to configure.
 
-For the second case, add a wake hook. Baton runs it when you resolve a task.
+### The agent already ended its turn
+
+It called `submit_task` and stopped. The process is gone, so nothing can tell it.
+Your answer sits in the database until that agent runs again.
+
+A wake hook fixes this. Baton runs it when you resolve a task, from the task's
+worktree:
 
 `~/Library/Application Support/dev.baton/config.json`
 
@@ -119,25 +130,61 @@ For the second case, add a wake hook. Baton runs it when you resolve a task.
 {
   "onResolve": {
     "command": "/opt/homebrew/bin/pi",
-    "args": [
-      "--resume", "{sessionId}",
-      "--message", "Baton {decision}: {text} Failed checks: {failedChecks}"
-    ],
+    "args": ["--continue", "--print", "{summary}"],
     "decisions": ["approved", "sentBack", "answered", "chose"],
+    "requireSessionId": false,
+    "requireWorktree": true
+  }
+}
+```
+
+`pi --continue` resumes the newest session for the working directory, which is
+why `requireWorktree` matters: without a worktree the hook would run somewhere
+else and wake an unrelated agent. Baton refuses instead of guessing.
+
+Prefer `{summary}`. It is a finished sentence that handles the empty cases, so an
+approval with no note does not produce `approved on "X":  Failed checks:`. The
+raw parts are also available: `{id}` `{sessionId}` `{agent}` `{decision}`
+`{status}` `{title}` `{text}` `{worktree}` `{branch}` `{failedChecks}`.
+
+This works. An agent that had already exited was resumed by the hook, read
+"The human approved ...", and went on to do the work.
+
+You own that config file. The MCP tools cannot write it, `command` must be an
+absolute path to an executable, and Baton runs it directly with no shell. A task
+payload supplies data, never the program. Check the wiring with
+`baton-mcp doctor`.
+
+### Addressing a session by id
+
+If your harness resumes by session id rather than by directory, use that instead:
+
+```json
+{
+  "onResolve": {
+    "command": "/opt/homebrew/bin/pi",
+    "args": ["--session-id", "{sessionId}", "--print", "{summary}"],
     "requireSessionId": true
   }
 }
 ```
 
-Placeholders: `{id}` `{sessionId}` `{agent}` `{decision}` `{status}` `{title}`
-`{text}` `{worktree}` `{branch}` `{failedChecks}`. The command runs in the task's
-worktree.
+Baton fills `sessionId` from whatever the agent passed, and otherwise detects it
+from the environment: `BATON_SESSION_ID` first, then `sessionEnvKeys` from your
+config, then a built-in table, then any `<PREFIX>_SESSION_ID` variable that is not
+from a terminal or a cloud SDK.
 
-You own this file. The MCP tools cannot write it, `command` must be an absolute
-path to an executable, and Baton runs it directly with no shell. A task payload
-supplies data, never the program. Check the wiring with `baton-mcp doctor`.
+One caveat worth knowing: **a harness does not have to pass its session to an MCP
+server, and pi does not.** So under pi the id is only present when the agent
+passes `sessionId` itself, which is why the directory-based hook above is the
+reliable option. Add your own variable with `sessionEnvKeys` if your harness
+exports one:
 
-For a shell-driven flow, block on a task with no MCP client at all:
+```json
+{ "sessionEnvKeys": ["MY_AGENT_SESSION"] }
+```
+
+### From a shell, with no MCP client
 
 ```bash
 ID=$(baton-mcp submit "Review before commit" --worktree "$PWD" --base main)

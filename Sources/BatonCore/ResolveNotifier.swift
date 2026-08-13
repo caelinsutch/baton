@@ -20,6 +20,13 @@ public enum ResolveNotifier {
         let sessionId = task.agent.sessionId ?? ""
         if hook.requireSessionId, sessionId.isEmpty { return }
 
+        // A directory-based resume, such as `pi --continue`, targets whatever
+        // session is newest in the working directory. Running it from the wrong
+        // directory would wake an unrelated agent, so refuse rather than guess.
+        let worktree = task.repo?.worktreePath
+        let hasWorktree = worktree.map { FileManager.default.fileExists(atPath: $0) } ?? false
+        if hook.requireWorktree, !hasWorktree { return }
+
         // An absolute path only. No shell, so nothing in a task payload can be
         // interpreted as a command, a pipe, or a redirection.
         guard hook.command.hasPrefix("/"),
@@ -36,8 +43,7 @@ public enum ResolveNotifier {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
-        if let worktree = task.repo?.worktreePath,
-           FileManager.default.fileExists(atPath: worktree) {
+        if let worktree, hasWorktree {
             process.currentDirectoryURL = URL(fileURLWithPath: worktree)
         }
 
@@ -60,6 +66,7 @@ public enum ResolveNotifier {
     ) -> [String: String] {
         let failed = response.unmetItems.map(\.text).joined(separator: "; ")
         return [
+            "summary": summary(task: task, response: response, failedChecks: failed),
             "id": task.id,
             "sessionId": task.agent.sessionId ?? "",
             "agent": task.agent.name,
@@ -71,6 +78,50 @@ public enum ResolveNotifier {
             "branch": task.repo?.branch ?? "",
             "failedChecks": failed,
         ]
+    }
+
+    /// A ready-made sentence for the wake message.
+    ///
+    /// Templating the parts by hand leaves dangling labels when a field is empty,
+    /// for example `approved on "X":  Failed checks:` after an approval with no
+    /// note. This composes only the parts that carry information.
+    private static func summary(
+        task: BatonTask,
+        response: BatonTask.Response,
+        failedChecks: String
+    ) -> String {
+        let note = (response.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        var parts: [String] = []
+
+        switch response.decision {
+        case .approved:
+            parts.append("The human approved \"\(task.title)\".")
+        case .sentBack:
+            parts.append("The human sent back \"\(task.title)\" for changes.")
+        case .answered:
+            parts.append("The human answered \"\(task.title)\".")
+        case .chose:
+            let label = task.choices.first { $0.id == response.choiceId }?.label
+            parts.append("The human chose \(label.map { "\"\($0)\"" } ?? "an option") for \"\(task.title)\".")
+        case .expired:
+            parts.append("Nobody answered \"\(task.title)\" before the deadline.")
+        case .cancelled:
+            parts.append("\"\(task.title)\" was cancelled.")
+        }
+
+        if !note.isEmpty { parts.append(note) }
+        if !failedChecks.isEmpty { parts.append("Failed checks: \(failedChecks).") }
+
+        switch response.decision {
+        case .sentBack:
+            parts.append("Fix that, then submit a new Baton task when you need another look.")
+        case .expired:
+            parts.append("Use your own judgement and say which assumption you made.")
+        default:
+            break
+        }
+
+        return parts.joined(separator: " ")
     }
 
     /// Replaces `{name}` placeholders. An unknown placeholder becomes empty
