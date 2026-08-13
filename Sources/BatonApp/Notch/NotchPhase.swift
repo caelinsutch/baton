@@ -16,17 +16,20 @@ enum NotchPhase: Equatable {
     case working(String)
     /// Every open task, grouped by worktree.
     case queue
+    /// The queue just emptied. A short confirmation beat before the notch goes
+    /// away, so finishing the last task reads as completion rather than a glitch.
+    case allClear
 
     var taskId: String? {
         switch self {
         case .peek(let id), .expanded(let id), .working(let id): return id
-        case .closed, .idle, .queue: return nil
+        case .closed, .idle, .queue, .allClear: return nil
         }
     }
 
     var isCollapsed: Bool {
         switch self {
-        case .closed, .idle: return true
+        case .closed, .idle, .allClear: return true
         case .peek, .expanded, .working, .queue: return false
         }
     }
@@ -36,7 +39,7 @@ enum NotchPhase: Equatable {
     var wantsKeyboard: Bool {
         switch self {
         case .expanded, .queue: return true
-        case .closed, .idle, .peek, .working: return false
+        case .closed, .idle, .peek, .working, .allClear: return false
         }
     }
 
@@ -45,6 +48,8 @@ enum NotchPhase: Equatable {
     func width(metrics: NotchMetrics) -> CGFloat {
         switch self {
         case .closed, .idle: return metrics.idleWidth
+        // Wide enough for a checkmark and two words, and still pill-shaped.
+        case .allClear: return max(150, metrics.idleWidth)
         case .peek: return max(380, metrics.idleWidth)
         case .working: return max(440, metrics.idleWidth)
         case .expanded, .queue: return NotchMetrics.maximumShellWidth

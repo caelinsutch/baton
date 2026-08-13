@@ -33,8 +33,8 @@ printf '%s\n' \
 	'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
 	'{"jsonrpc":"2.0","method":"notifications/initialized"}' \
 	'{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-	'{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"submit_task","arguments":{"title":"smoke test","sessionId":"smoke"}}}' \
-	| "$MCP" serve >"$WORK/out.jsonl"
+	'{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"submit_task","arguments":{"title":"smoke test","sessionId":"smoke"}}}' |
+	"$MCP" serve >"$WORK/out.jsonl"
 
 python3 - "$WORK/out.jsonl" <<'PY'
 import json
@@ -73,8 +73,8 @@ ANSWER_PID=$!
 
 printf '%s\n' \
 	'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-	'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ask_human","arguments":{"question":"blocking round trip","waitSeconds":20,"sessionId":"smoke"}}}' \
-	| "$MCP" serve >"$WORK/blocking.jsonl"
+	'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ask_human","arguments":{"question":"blocking round trip","waitSeconds":20,"sessionId":"smoke"}}}' |
+	"$MCP" serve >"$WORK/blocking.jsonl"
 wait "$ANSWER_PID"
 
 python3 - "$WORK/blocking.jsonl" <<'PY'

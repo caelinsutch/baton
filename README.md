@@ -169,6 +169,7 @@ scripts/
   make-icon.swift Render the icon, generated not committed
   release.sh     Sign, notarize, package a DMG
   smoke-mcp.sh   End-to-end protocol and round-trip check
+  check-notifications.sh  Diagnose notification delivery and post a test banner
 agents/
   AGENTS-snippet.md  The prompt that makes agents use it
 ```
@@ -204,14 +205,32 @@ outside it passes clicks through to the app underneath.
 
 ## Notifications
 
-Notifications need a real bundle with a stable bundle id. An ad-hoc signature is
-enough to launch the app, but delivery is only reliable with a Developer ID
-signature. Set `BATON_SIGN_IDENTITY` before you rely on banners.
+Run this after the first build:
 
-Time Sensitive alerts, used by `urgent`, need a restricted entitlement that Apple
-must grant. `scripts/build-app.sh` deliberately omits the entitlements file for
-an ad-hoc build, because launchd refuses to spawn an ad-hoc binary that claims a
-restricted entitlement.
+```bash
+scripts/check-notifications.sh
+```
+
+It reports the real authorization status and posts a test banner.
+
+The failure mode is confusing enough to be worth naming. If Baton is switched off
+in System Settings, `requestAuthorization` returns "Notifications are not allowed
+for this application", macOS does not prompt, and posting still reports success.
+So tasks arrive with no banner and nothing looks broken. The script detects that
+and opens the right settings pane.
+
+An ad-hoc signature is fine for this. macOS keys notification permission on the
+bundle id, not the signature, so the permission survives a rebuild even though
+the code hash changes on every build.
+
+Two things do need a real Developer ID:
+
+- Running Baton on someone else's machine without a Gatekeeper warning.
+- Time Sensitive alerts, used by `urgent`, which need a restricted entitlement
+  Apple must grant. `scripts/build-app.sh` only attaches the entitlements file
+  when the identity is a Developer ID, because launchd refuses to spawn a binary
+  that claims a restricted entitlement without a matching profile. Without it,
+  `urgent` posts a normal banner instead of breaking through Focus.
 
 ## Guardrails
 

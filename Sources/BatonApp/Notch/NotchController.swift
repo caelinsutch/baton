@@ -12,6 +12,8 @@ final class NotchController {
     private var contentView: PassthroughView?
     private var metrics: NotchMetrics?
     private var screenObserver: NSObjectProtocol?
+    /// Pending window removal, held so an arriving task can cancel it.
+    private var hideWork: DispatchWorkItem?
     private var phaseObservation: NSKeyValueObservation?
 
     init(model: TaskModel) {
@@ -32,6 +34,8 @@ final class NotchController {
     }
 
     func stop() {
+        hideWork?.cancel()
+        hideWork = nil
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
         }
@@ -122,10 +126,12 @@ final class NotchController {
         Trace.log("applyVisibility phase=\(model.phase) composing=\(model.isComposingNote) key=\(panel.isKeyWindow)")
 
         if model.phase == .closed {
-            releaseFocus(panel)
-            panel.orderOut(nil)
+            scheduleHide(panel)
             return
         }
+        // Any other phase means the notch is wanted, so drop a pending removal.
+        hideWork?.cancel()
+        hideWork = nil
         if !panel.isVisible {
             // `orderFrontRegardless` shows the panel without activating the app,
             // so your editor keeps focus.
@@ -139,6 +145,29 @@ final class NotchController {
         } else {
             releaseFocus(panel)
         }
+    }
+
+    /// Removes the window only after the fade finishes.
+    ///
+    /// Calling `orderOut` the moment the phase changes cut the collapse animation
+    /// halfway, which is what made finishing the last task look broken. SwiftUI
+    /// needs the window to stay on screen for the length of the transition.
+    private func scheduleHide(_ panel: NotchPanel) {
+        releaseFocus(panel)
+        guard panel.isVisible else { return }
+        guard hideWork == nil else { return }
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.hideWork = nil
+            // Re-check: a task may have arrived while the shell was fading.
+            guard self.model.phase == .closed else { return }
+            panel.orderOut(nil)
+        }
+        hideWork = work
+        // Slightly longer than the shell spring, so the fade completes off-camera
+        // rather than being clipped.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     /// Lets the shell take the keyboard, and makes that visible.

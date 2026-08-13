@@ -28,6 +28,7 @@ final class TaskModel {
     private var wakeToken: WakeSignal.Token?
     private var pollTimer: Timer?
     private var peekTimer: Timer?
+    private var closeTimer: Timer?
     private var knownIds: Set<String> = []
     private var lastRevision: Int64 = -1
 
@@ -65,6 +66,7 @@ final class TaskModel {
         wakeToken = nil
         pollTimer?.invalidate()
         peekTimer?.invalidate()
+        closeTimer?.invalidate()
     }
 
     // MARK: - Loading
@@ -132,14 +134,23 @@ final class TaskModel {
         if isComposingNote { return true }
         switch phase {
         case .working, .expanded: return true
-        case .closed, .idle, .peek, .queue: return false
+        // A closing notch is not busy. An arriving task should interrupt it.
+        case .closed, .idle, .peek, .queue, .allClear: return false
         }
     }
 
     /// Drops the phase back to something valid after the task list changes.
     private func syncPhaseAfterReload() {
-        if let id = phase.taskId, task(id: id) == nil {
-            setPhase(visibleTasks.isEmpty ? .closed : .idle)
+        // The shown task may have been resolved somewhere else: the agent called
+        // cancel_task, a deadline passed, or another surface answered it. Checking
+        // `task(id:)` is not enough, because that also finds resolved tasks in the
+        // recent list, which left an answered card sitting on screen.
+        if let id = phase.taskId, !openTasks.contains(where: { $0.id == id && $0.isVisible() }) {
+            if visibleTasks.isEmpty {
+                finishAndClose()
+            } else {
+                setPhase(.idle)
+            }
             return
         }
         if phase == .closed, !visibleTasks.isEmpty {
@@ -147,7 +158,8 @@ final class TaskModel {
             return
         }
         if visibleTasks.isEmpty, phase == .idle {
-            setPhase(.closed)
+            // Fade out rather than blink away.
+            finishAndClose()
         }
     }
 
@@ -193,6 +205,9 @@ final class TaskModel {
     func setPhase(_ next: NotchPhase) {
         guard phase != next else { return }
         peekTimer?.invalidate()
+        // A new phase cancels a pending close, so an arriving task interrupts the
+        // goodbye rather than racing it.
+        if next != .closed { closeTimer?.invalidate() }
         if next.taskId == nil || next.taskId != phase.taskId {
             isComposingNote = false
         }
@@ -222,7 +237,7 @@ final class TaskModel {
             setPhase(visibleTasks.count == 1 ? .expanded(visibleTasks[0].id) : .queue)
         case .peek(let id):
             setPhase(.expanded(id))
-        case .closed, .expanded, .working, .queue:
+        case .closed, .expanded, .working, .queue, .allClear:
             break
         }
     }
@@ -250,7 +265,7 @@ final class TaskModel {
             }
         case .queue, .working:
             setPhase(visibleTasks.isEmpty ? .closed : .idle)
-        case .closed, .idle:
+        case .closed, .idle, .allClear:
             break
         }
     }
@@ -369,7 +384,22 @@ final class TaskModel {
         if let next = visibleTasks.first {
             setPhase(visibleTasks.count == 1 ? .expanded(next.id) : .queue)
         } else {
-            setPhase(.closed)
+            finishAndClose()
+        }
+    }
+
+    /// Ends on a confirmation beat.
+    ///
+    /// Dropping straight to `.closed` made the last approval look broken: the card
+    /// collapsed toward a tiny pill and the window was pulled at the same moment.
+    /// Holding a short "All clear" pill gives the collapse somewhere to land.
+    private func finishAndClose() {
+        setPhase(.allClear)
+        closeTimer = Timer.scheduledTimer(withTimeInterval: 1.1, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.phase == .allClear else { return }
+                self.setPhase(.closed)
+            }
         }
     }
 

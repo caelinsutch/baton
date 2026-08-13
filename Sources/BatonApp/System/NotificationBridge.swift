@@ -41,10 +41,27 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
         center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, error in
             Task { @MainActor in
                 self?.isAuthorized = granted
+                Trace.log("authorization granted=\(granted) error=\(error.map(String.init(describing:)) ?? "none")")
                 if let error {
                     self?.model.lastError = "Notifications are off: \(error.localizedDescription)"
                 }
+                self?.logSettings()
             }
+        }
+    }
+
+    /// Reports what the system actually thinks, which is the only way to tell an
+    /// unsigned-bundle problem apart from a Focus or Settings problem.
+    private func logSettings() {
+        guard Trace.isEnabled else { return }
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            Trace.log(
+                "settings authorization=\(settings.authorizationStatus.rawValue) "
+                    + "alert=\(settings.alertSetting.rawValue) "
+                    + "sound=\(settings.soundSetting.rawValue) "
+                    + "style=\(settings.alertStyle.rawValue) "
+                    + "notificationCenter=\(settings.notificationCenterSetting.rawValue)"
+            )
         }
     }
 
@@ -156,6 +173,7 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
     private func submit(identifier: String, content: UNMutableNotificationContent) {
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) { [weak self] error in
+            Trace.log("post id=\(identifier) error=\(error.map(String.init(describing:)) ?? "none")")
             guard let error else { return }
             Task { @MainActor in
                 self?.model.lastError = "Baton cannot post a notification: \(error.localizedDescription)"

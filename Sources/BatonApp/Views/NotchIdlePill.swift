@@ -94,3 +94,30 @@ struct NotchPeekView: View {
         .transition(.opacity.combined(with: .offset(y: -4)))
     }
 }
+
+/// The goodbye. Shown for about a second after the queue empties.
+///
+/// Without it, resolving the last task collapsed a wide card into nothing while
+/// the window was being removed, which read as a glitch rather than as finishing.
+struct NotchAllClearPill: View {
+    let metrics: NotchMetrics
+
+    @State private var hasAppeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Spacer(minLength: 0)
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.tint)
+                .symbolEffect(.bounce, options: reduceMotion ? .nonRepeating.speed(4) : .nonRepeating, value: hasAppeared)
+            Text("All clear")
+                .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: metrics.idleHeight)
+        .onAppear { hasAppeared = true }
+    }
+}

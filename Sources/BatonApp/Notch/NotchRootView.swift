@@ -11,6 +11,9 @@ struct NotchRootView: View {
 
     @Namespace private var glassNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Liquid Glass is exactly what this setting is about, so it has to be
+    /// honoured rather than assumed off.
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private let panelSpace = "batonPanel"
 
@@ -28,11 +31,7 @@ struct NotchRootView: View {
 
     private var shell: some View {
         GlassEffectContainer(spacing: 16) {
-            content
-                .frame(width: model.phase.width(metrics: metrics))
-                .frame(height: model.phase.isCollapsed ? metrics.idleHeight : nil)
-                .glassEffect(glass, in: shellShape)
-                .glassEffectID("shell", in: glassNamespace)
+            sizedContent
         }
         // Measure after the glass, so the reported rect matches what you see.
         .onGeometryChange(for: CGRect.self) { proxy in
@@ -49,6 +48,26 @@ struct NotchRootView: View {
             }
         }
         .opacity(model.phase == .closed ? 0 : 1)
+    }
+
+    /// The shell body at its target size, glass or opaque.
+    @ViewBuilder
+    private var sizedContent: some View {
+        let sized = content
+            .frame(width: model.phase.width(metrics: metrics))
+            .frame(height: model.phase.isCollapsed ? metrics.idleHeight : nil)
+
+        if reduceTransparency {
+            // A solid surface with a hairline edge. Without the border the shell
+            // would merge into a light desktop and lose its shape.
+            sized
+                .background(.background, in: shellShape)
+                .overlay(shellShape.stroke(.separator, lineWidth: 1))
+        } else {
+            sized
+                .glassEffect(glass, in: shellShape)
+                .glassEffectID("shell", in: glassNamespace)
+        }
     }
 
     private var glass: Glass {
@@ -89,6 +108,8 @@ struct NotchRootView: View {
             }
         case .queue:
             NotchQueueView(model: model)
+        case .allClear:
+            NotchAllClearPill(metrics: metrics)
         }
     }
 }

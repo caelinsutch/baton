@@ -61,9 +61,19 @@ done
 echo "==> Signing"
 IDENTITY="${BATON_SIGN_IDENTITY:-}"
 if [ -n "$IDENTITY" ]; then
-	codesign --force --deep --options runtime --timestamp \
-		--entitlements "$RESOURCES/Baton.entitlements" \
-		--sign "$IDENTITY" "$APP"
+	# Only a Developer ID may claim the Time Sensitive entitlement. It is
+	# restricted, and launchd refuses to spawn a binary that claims it without a
+	# matching provisioning profile.
+	SIGN_ARGS=(--force --deep --options runtime --timestamp --sign "$IDENTITY")
+	case "$IDENTITY" in
+	*"Developer ID"*)
+		SIGN_ARGS+=(--entitlements "$RESOURCES/Baton.entitlements")
+		;;
+	*)
+		echo "    '$IDENTITY' is not a Developer ID, so skipping restricted entitlements"
+		;;
+	esac
+	codesign "${SIGN_ARGS[@]}" "$APP"
 	echo "    signed with: $IDENTITY"
 else
 	# Ad-hoc, and deliberately with no entitlements file.
