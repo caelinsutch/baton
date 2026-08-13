@@ -28,6 +28,9 @@ struct NotchIdlePill: View {
         .padding(.horizontal, 10)
         .frame(height: metrics.idleHeight)
         .contentTransition(.numericText())
+        // Clickable as well as hoverable. A click is what people try first.
+        .contentShape(.rect)
+        .onTapGesture { model.openFromShell() }
     }
 }
 
@@ -92,6 +95,8 @@ struct NotchPeekView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .transition(.opacity.combined(with: .offset(y: -4)))
+        .contentShape(.rect)
+        .onTapGesture { model.openFromShell() }
     }
 }
 

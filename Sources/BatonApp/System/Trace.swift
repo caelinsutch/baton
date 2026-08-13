@@ -27,6 +27,19 @@ enum Trace {
         BatonPaths.supportDirectory.appendingPathComponent("DEBUG")
     }
 
+    /// Opens the full card on arrival instead of peeking.
+    ///
+    /// Separate from tracing on purpose. Working on the card wants this on, and
+    /// testing the pill needs it off while still reading the log.
+    static let autoExpand: Bool = {
+        if ProcessInfo.processInfo.environment["BATON_DEBUG_EXPAND"] == "1" { return true }
+        return FileManager.default.fileExists(atPath: expandMarkerURL.path)
+    }()
+
+    static var expandMarkerURL: URL {
+        BatonPaths.supportDirectory.appendingPathComponent("DEBUG_EXPAND")
+    }
+
     static var logURL: URL {
         BatonPaths.supportDirectory.appendingPathComponent("app.log")
     }

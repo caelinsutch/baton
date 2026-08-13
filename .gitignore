@@ -13,3 +13,6 @@ dist/
 *.xcuserstate
 xcuserdata/
 *.xcodeproj/project.xcworkspace/
+
+# Local agent tooling state
+.pi/

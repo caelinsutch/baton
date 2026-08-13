@@ -8,6 +8,14 @@ terminal tab you are not looking at.
 
 Baton gives agents an MCP tool to ask, and gives you one place to answer.
 
+<p align="center">
+  <img src="docs/demo.gif" alt="An agent asks for a review, the notch shows the change, the human ticks the checks and approves, the agent commits" width="460">
+</p>
+
+Above: a real pi agent asks for a review before committing. The notch slides in
+with the branch and the change, the checks get ticked, one click approves, and the
+agent carries on. Nothing was staged; that is the actual loop.
+
 ```text
 Agent ──▶ baton-mcp (MCP over stdio) ──▶ tasks.db ◀── Baton.app ──▶ you
                                             ▲                         │
@@ -217,6 +225,7 @@ scripts/
   release.sh     Sign, notarize, package a DMG
   smoke-mcp.sh   End-to-end protocol and round-trip check
   check-notifications.sh  Diagnose notification delivery and post a test banner
+  record-demo.sh  Re-record the demo above, end to end with a real agent
 agents/
   AGENTS-snippet.md  The prompt that makes agents use it
 ```

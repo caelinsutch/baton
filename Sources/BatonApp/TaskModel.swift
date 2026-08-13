@@ -116,10 +116,10 @@ final class TaskModel {
         }
         // Show the newest arrival, but never interrupt work already in progress.
         if let newest = arrived.last, !isBusy {
-            // Under BATON_DEBUG the card opens straight away. Hover is awkward to
-            // drive from a script, and the card is what you usually want to see
-            // while working on the views.
-            if Trace.isEnabled {
+            // With the expand marker set, the card opens straight away. Hover is
+            // awkward to drive from a script, and the card is what you usually
+            // want while working on the views.
+            if Trace.autoExpand {
                 setPhase(.expanded(newest.id))
             } else {
                 peek(taskId: newest.id)
@@ -227,6 +227,21 @@ final class TaskModel {
 
     func cancelPeekCollapse() {
         peekTimer?.invalidate()
+    }
+
+    /// Opens the shell from a click on the pill.
+    ///
+    /// Hover alone was not enough. Pointing at a 30 point pill under the menu bar
+    /// is fiddly, and a click is what most people try first.
+    func openFromShell() {
+        // Peek counts too. A task has just slid in and you reach for it, which is
+        // the most likely moment anyone clicks the notch at all.
+        switch phase {
+        case .idle, .peek:
+            hoverBegan()
+        case .closed, .expanded, .working, .queue, .allClear:
+            break
+        }
     }
 
     /// Hover expands from the pill. Never collapses an open card.
