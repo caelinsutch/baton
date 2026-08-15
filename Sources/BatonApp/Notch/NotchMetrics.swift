@@ -25,12 +25,19 @@ struct NotchMetrics: Equatable {
         if inset > 0,
            let left = screen.auxiliaryTopLeftArea,
            let right = screen.auxiliaryTopRightArea {
-            // The two auxiliary areas sit either side of the notch, so the gap
-            // between them is the notch itself.
-            let width = max(frame.width - left.width - right.width, 0)
-            if width > 0 {
+            // Measure the literal gap between the two areas.
+            //
+            // Subtracting their widths from the screen width is not the same
+            // thing: macOS insets those rects from the display edges, so that
+            // arithmetic counts the edge margins as part of the notch and comes out
+            // too wide. The pill then sat noticeably wider than the real notch.
+            let gap = right.minX - left.maxX
+            // Sanity bounds. A notch is roughly 160 to 230 points on current
+            // hardware; anything outside that means the rects were not what we
+            // assumed, and the synthetic pill is a better answer than a wrong one.
+            if gap >= 120, gap <= 400 {
                 return NotchMetrics(
-                    notchWidth: width,
+                    notchWidth: gap,
                     notchHeight: inset,
                     screenFrame: frame,
                     hasHardwareNotch: true
@@ -49,14 +56,18 @@ struct NotchMetrics: Equatable {
         )
     }
 
-    /// The screen that should host the notch. Prefers the display with real
-    /// hardware notch, then the one holding the mouse.
+    /// The screen that should host the notch: the one with the menu bar.
+    ///
+    /// Preferring whichever display has hardware notch was wrong. With the lid open
+    /// beside an external display, the shell appeared on the laptop while you were
+    /// working on the other screen. The notch belongs where the menu bar is, which
+    /// is the primary display at the origin, and it falls back to a synthetic pill
+    /// when that display has no notch.
     static func preferredScreen() -> NSScreen? {
-        if let notched = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) {
-            return notched
+        if let primary = NSScreen.screens.first(where: { $0.frame.origin == .zero }) {
+            return primary
         }
-        let mouse = NSEvent.mouseLocation
-        return NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        return NSScreen.main ?? NSScreen.screens.first
     }
 
     /// Frame for the host panel. It stays fixed and generous, so the shell

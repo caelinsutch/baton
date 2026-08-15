@@ -12,6 +12,7 @@ final class NotchController {
     private var contentView: PassthroughView?
     private var metrics: NotchMetrics?
     private var screenObserver: NSObjectProtocol?
+    private var resignObserver: NSObjectProtocol?
     /// Pending window removal, held so an arriving task can cancel it.
     private var hideWork: DispatchWorkItem?
     private var phaseObservation: NSKeyValueObservation?
@@ -31,6 +32,15 @@ final class NotchController {
             Task { @MainActor in self?.rebuild() }
         }
         observePhase()
+
+        // Clicking another app is the natural way to dismiss an open card.
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.model.resignedActive() }
+        }
     }
 
     func stop() {
@@ -38,6 +48,9 @@ final class NotchController {
         hideWork = nil
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
+        }
+        if let resignObserver {
+            NotificationCenter.default.removeObserver(resignObserver)
         }
         panel?.orderOut(nil)
         panel = nil
@@ -93,9 +106,29 @@ final class NotchController {
     /// from the top left. `PassthroughView` is flipped to match, so the rect
     /// needs no conversion. Anything outside it passes clicks through.
     private func updateHitArea(_ shellFrame: CGRect) {
-        guard let contentView else { return }
-        // A few points of slack, so a click on the very edge of the glass lands.
-        contentView.interactiveRect = shellFrame.insetBy(dx: -4, dy: -4)
+        guard let contentView, let panel else { return }
+
+        // Tracking the frame exactly made the buttons intermittently dead. The
+        // frame changes on every animation tick, so a click during the expand
+        // spring, or just after the card grew to fit the note field, could land a
+        // few points outside a stale rect and fall through to the app underneath.
+        // The Approve button sits on the bottom edge, so it was the usual casualty.
+        if model.phase.isCollapsed {
+            // A small pill leaves most of the strip free, so stay tight and let
+            // clicks beside it pass through.
+            contentView.interactiveRect = shellFrame.insetBy(dx: -4, dy: -4)
+            return
+        }
+
+        // An open card fills the panel's width, so there is nothing beside it to
+        // pass through to. Claiming the full width and a generous bottom margin
+        // removes the race without swallowing clicks meant for other apps.
+        contentView.interactiveRect = CGRect(
+            x: 0,
+            y: 0,
+            width: panel.frame.width,
+            height: shellFrame.maxY + 12
+        )
     }
 
     // MARK: - Visibility and focus
@@ -106,6 +139,7 @@ final class NotchController {
             _ = model.phase
             _ = model.pendingCount
             _ = model.isComposingNote
+            _ = model.wantsFocus
         } onChange: {
             Task { @MainActor [weak self] in
                 self?.applyVisibility()
@@ -138,9 +172,10 @@ final class NotchController {
             panel.orderFrontRegardless()
         }
 
-        // Buttons and checkboxes work on a click without key status, so the only
-        // surface that truly needs the keyboard is the send-back note.
-        if model.isComposingNote {
+        // Focus follows a deliberate gesture, not the arrival of a task. Clicking
+        // the shell or pressing a shortcut sets `wantsFocus`; a task sliding in
+        // never does.
+        if model.wantsFocus || model.isComposingNote {
             claimFocus(panel)
         } else {
             releaseFocus(panel)
@@ -201,10 +236,16 @@ final class NotchController {
     /// want to look. Focus follows the note field, through `applyVisibility`.
     func reveal(taskId: String?) {
         if let taskId {
-            model.open(taskId: taskId)
-        } else if model.pendingCount > 0 {
-            model.toggleQueue()
+            model.openWithFocus(taskId: taskId)
+        } else {
+            model.toggleOpen()
         }
+        applyVisibility()
+    }
+
+    /// Opens the notch, or closes it if it is already open.
+    func toggleOpen() {
+        model.toggleOpen()
         applyVisibility()
     }
 }

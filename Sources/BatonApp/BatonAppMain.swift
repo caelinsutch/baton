@@ -49,19 +49,24 @@ final class BatonServices {
 
     private func installHotKeys() {
         HotKeyCenter.shared.install(
-            toggleQueue: { [model, notch] in
-                model.toggleQueue()
-                notch.reveal(taskId: model.phase.taskId)
+            toggleQueue: { [notch] in
+                notch.toggleOpen()
             },
-            markDone: { [model] in
-                // Acts on whatever the notch shows, so the shortcut works from
-                // inside another app.
-                guard let id = model.phase.taskId ?? model.visibleTasks.first?.id else { return }
+            markDone: { [model, notch] in
+                // Only ever acts on a task that is actually on screen. Falling back
+                // to the first pending task would approve work you cannot see.
+                guard let id = model.onScreenTaskId else {
+                    notch.toggleOpen()
+                    return
+                }
                 model.confirm(taskId: id)
             },
             sendBack: { [model, notch] in
-                guard let id = model.phase.taskId ?? model.visibleTasks.first?.id else { return }
-                model.open(taskId: id)
+                guard let id = model.onScreenTaskId else {
+                    notch.toggleOpen()
+                    return
+                }
+                model.openWithFocus(taskId: id)
                 model.isComposingNote = true
                 notch.reveal(taskId: id)
             }

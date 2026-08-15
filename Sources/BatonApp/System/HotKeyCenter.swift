@@ -46,12 +46,17 @@ final class HotKeyCenter {
 
         var reference: EventHotKeyRef?
         let hotKeyId = EventHotKeyID(signature: OSType(0x4254_4E31), id: id)
-        let status = RegisterEventHotKey(keyCode, modifiers, hotKeyId, GetEventDispatcherTarget(), 0, &reference)
+        // `GetApplicationEventTarget()` is the target hot key events are delivered
+        // to. Registering against the dispatcher target left the handler never
+        // being called, so none of the shortcuts worked.
+        let status = RegisterEventHotKey(keyCode, modifiers, hotKeyId, GetApplicationEventTarget(), 0, &reference)
         if status == noErr {
             handlers.append(reference)
+            Trace.log("hotkey registered id=\(id) keyCode=\(keyCode)")
         } else {
-            // Another app owns the combination. Fail quietly; the menu bar and the
-            // notch still work without it.
+            // Usually another app owns the combination. Report it, because a
+            // silently missing shortcut is indistinguishable from a broken one.
+            Trace.log("hotkey FAILED id=\(id) keyCode=\(keyCode) status=\(status)")
             bindings[id] = nil
         }
     }
@@ -60,7 +65,7 @@ final class HotKeyCenter {
         guard eventHandler == nil else { return }
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(
-            GetEventDispatcherTarget(),
+            GetApplicationEventTarget(),
             { _, event, _ -> OSStatus in
                 var hotKeyId = EventHotKeyID()
                 let status = GetEventParameter(
@@ -89,6 +94,11 @@ final class HotKeyCenter {
     }
 
     fileprivate func fire(id: UInt32) {
-        bindings[id]?.action()
+        guard let binding = bindings[id] else {
+            Trace.log("hotkey fired for unknown id=\(id)")
+            return
+        }
+        Trace.log("hotkey fired id=\(id)")
+        binding.action()
     }
 }

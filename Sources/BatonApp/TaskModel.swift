@@ -22,6 +22,15 @@ final class TaskModel {
     /// True while the send-back note field is open.
     var isComposingNote = false
 
+    /// True when the human opened the shell deliberately, by clicking it or by
+    /// pressing a shortcut.
+    ///
+    /// Focus follows this rather than the phase. A task arriving must never take
+    /// the keyboard, but once you reach for the notch you expect Escape to close it
+    /// and the shortcuts to work, so at that point it should hold focus like any
+    /// normal window.
+    var wantsFocus = false
+
     var lastError: String?
 
     private let store: TaskStore
@@ -205,6 +214,10 @@ final class TaskModel {
     func setPhase(_ next: NotchPhase) {
         guard phase != next else { return }
         peekTimer?.invalidate()
+        // Focus is only ever held by an open surface.
+        if next.isCollapsed || next == .closed {
+            wantsFocus = false
+        }
         // A new phase cancels a pending close, so an arriving task interrupts the
         // goodbye rather than racing it.
         if next != .closed { closeTimer?.invalidate() }
@@ -239,6 +252,8 @@ final class TaskModel {
         switch phase {
         case .idle, .peek:
             hoverBegan()
+            // A click is a deliberate gesture, so the shell may take the keyboard.
+            wantsFocus = true
         case .closed, .expanded, .working, .queue, .allClear:
             break
         }
@@ -285,18 +300,64 @@ final class TaskModel {
         }
     }
 
-    func toggleQueue() {
+    /// One deliberate open-or-close, for the shortcut and the menu bar.
+    ///
+    /// This replaced a pair of calls that each toggled, so the shortcut fired,
+    /// opened the queue, and immediately closed it again. Net effect: the key
+    /// appeared dead.
+    ///
+    /// It also picks the right surface. Sending you to a list to read a single task
+    /// is a wasted step.
+    func toggleOpen() {
         switch phase {
-        case .queue:
-            setPhase(visibleTasks.isEmpty ? .closed : .idle)
-        default:
-            guard !visibleTasks.isEmpty else { return }
-            setPhase(.queue)
+        case .expanded, .queue:
+            dismiss()
+        case .closed, .idle, .peek, .working, .allClear:
+            guard let first = visibleTasks.first else { return }
+            setPhase(visibleTasks.count == 1 ? .expanded(first.id) : .queue)
+            wantsFocus = true
+        }
+    }
+
+    /// The task the human can currently see, if any.
+    ///
+    /// Acting on `visibleTasks.first` instead would let a shortcut approve
+    /// something that is not on screen, which is the one thing an approval
+    /// shortcut must never do.
+    var onScreenTaskId: String? {
+        switch phase {
+        case .expanded(let id), .working(let id), .peek(let id): return id
+        case .closed, .idle, .queue, .allClear: return nil
         }
     }
 
     func open(taskId: String) {
         setPhase(.expanded(taskId))
+    }
+
+    /// Opens a task from a shortcut or a notification, which are both deliberate.
+    func openWithFocus(taskId: String) {
+        setPhase(.expanded(taskId))
+        wantsFocus = true
+    }
+
+    /// Called when Baton stops being the active app, which means you clicked
+    /// somewhere else.
+    ///
+    /// An open card had no way out: Escape needed focus it did not have, hover-out
+    /// deliberately does not collapse it, and there was no close control. Treating
+    /// a click elsewhere as "I am done looking" is what every popover does.
+    func resignedActive() {
+        guard case .expanded(let id) = phase else {
+            if phase == .queue { setPhase(visibleTasks.isEmpty ? .closed : .idle) }
+            return
+        }
+        // Keep the checklist to hand. You probably clicked away to go and check it.
+        if let task = task(id: id), !task.checklist.isEmpty {
+            setPhase(.working(id))
+        } else {
+            setPhase(visibleTasks.isEmpty ? .closed : .idle)
+        }
     }
 
     // MARK: - Actions
@@ -329,6 +390,7 @@ final class TaskModel {
 
     /// The confirm button changes meaning with the kind of task.
     func confirm(taskId: String) {
+        Trace.log("confirm task=\(taskId)")
         guard let task = task(id: taskId) else { return }
         switch task.kind {
         case .choose:
@@ -369,8 +431,10 @@ final class TaskModel {
         _ taskId: String,
         decision: BatonTask.Response.Decision,
         text: String? = nil,
-        choiceId: String? = nil
+        choiceId: String? = nil,
+        caller: String = #function
     ) {
+        Trace.log("respond \(decision.rawValue) task=\(taskId) from=\(caller)")
         guard let task = task(id: taskId) else { return }
         let response = BatonTask.Response(
             decision: decision,

@@ -101,20 +101,25 @@ Inside the card:
 | `⌘1`–`⌘8` | Pick a choice |
 | `esc` | Close the card |
 
-These need the card to hold the keyboard, which happens once you open the
-send-back note. The rest of the time the notch deliberately does not take focus,
-so reach for the global keys instead.
+The card holds the keyboard once you open it deliberately, by clicking the shell
+or pressing the shortcut below. A task that merely arrives never takes focus, so
+it cannot steal your typing.
 
 Global, from any app:
 
 | Key | Action |
 | --- | --- |
-| `⌥⌘B` | Show the queue |
+| `⌥⌘B` | Open the notch, or close it if it is already open |
 | `⌥⌘↩` | Mark the current task done |
 | `⌥⌘⌫` | Send the current task back |
 
 The global keys carry `⌥⌘` on purpose. A global `⌘↩` would break confirm in every
-other app.
+other app. They also only ever act on a task that is on screen: falling back to
+the first pending task would let a shortcut approve work you cannot see.
+
+To close a card: `esc`, the `×` in its corner, or click another app. Clicking away
+keeps a checklist to hand by leaving the slim bar up, since you probably went to
+go and check something.
 
 ## Send back, not just done
 
@@ -236,7 +241,8 @@ scripts/
   smoke-mcp.sh   End-to-end protocol and round-trip check
   check-notifications.sh  Diagnose notification delivery and post a test banner
   record-demo.sh  Re-record the demo above, end to end with a real agent
-  install.sh      Install to /Applications, add a login item, wire up pi and
+  install.sh      Install to /Applications, add a login item, wire up pi
+  display-info.swift  Print what Baton sees on each display, for notch geometry and
                   Claude Code
 agents/
   AGENTS-snippet.md  The prompt that makes agents use it

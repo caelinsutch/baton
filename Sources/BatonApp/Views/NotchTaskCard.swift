@@ -109,6 +109,18 @@ struct NotchTaskCard: View {
                 .buttonStyle(.glass)
                 .help("Show every open task")
             }
+
+            // An explicit way out. Escape works too, but only once the card holds
+            // focus, and there was previously no visible control at all.
+            Button {
+                model.dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.tertiary)
+            .help("Close and leave the task open (esc)")
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
